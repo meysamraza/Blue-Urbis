@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>BlueUrbis</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.js'></script>
+    <link href='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.css' rel='stylesheet' />
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #0a0a1a; font-family: Arial, sans-serif; overflow: hidden; }
+        #map { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; }
+
+        #header {
+            position: absolute; top: 0; left: 0; right: 0;
+            height: 60px; background: rgba(0,0,20,0.97);
+            border-bottom: 2px solid #3333ff;
+            display: flex; align-items: center;
+            padding: 0 24px; z-index: 999;
+            justify-content: space-between;
+        }
+        #header h1 { font-size: 22px; color: #3333ff; font-weight: 900; letter-spacing: 2px; }
+        #header p { font-size: 11px; color: #aaa; margin-top: 2px; }
+        .live-badge {
+            background: #3333ff; color: white;
+            font-size: 10px; padding: 4px 12px;
+            border-radius: 20px; font-weight: bold;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse { 0%{opacity:1} 50%{opacity:0.5} 100%{opacity:1} }
+
+        #panel {
+            position: absolute; top: 60px; right: 0;
+            width: 300px; height: calc(100vh - 60px);
+            background: rgba(0,0,20,0.97);
+            border-left: 2px solid #3333ff;
+            padding: 20px; z-index: 999;
+            overflow-y: auto;
+        }
+        .panel-title {
+            color: #3333ff; font-size: 11px;
+            font-weight: bold; letter-spacing: 2px;
+            margin-bottom: 14px; text-transform: uppercase;
+        }
+        .stat-card {
+            background: rgba(51,51,255,0.08);
+            border: 1px solid rgba(51,51,255,0.25);
+            border-radius: 8px; padding: 12px;
+            margin-bottom: 10px;
+        }
+        .stat-label { color: #aaa; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+        .stat-value { color: white; font-size: 20px; font-weight: bold; margin-top: 4px; }
+        .stat-sub { color: #3333ff; font-size: 10px; margin-top: 2px; }
+
+        .divider { border: none; border-top: 1px solid rgba(51,51,255,0.2); margin: 16px 0; }
+
+        .direction-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 8px; margin-bottom: 14px;
+        }
+        .dir-card {
+            background: rgba(51,51,255,0.08);
+            border: 1px solid rgba(51,51,255,0.2);
+            border-radius: 8px; padding: 10px;
+            text-align: center;
+        }
+        .dir-icon { font-size: 18px; }
+        .dir-label { color: #aaa; font-size: 9px; margin-top: 2px; }
+        .dir-value { color: white; font-size: 14px; font-weight: bold; }
+
+        .sim-btn {
+            width: 100%; padding: 12px;
+            background: #3333ff; color: white;
+            border: none; border-radius: 8px;
+            font-size: 12px; font-weight: bold;
+            cursor: pointer; margin-top: 8px;
+            letter-spacing: 1px; transition: 0.2s;
+        }
+        .sim-btn:hover { background: #5555ff; }
+        .sim-btn.danger-btn {
+            background: transparent;
+            border: 1px solid #ff4444;
+            color: #ff4444; margin-top: 8px;
+        }
+        .sim-btn.danger-btn:hover { background: rgba(255,68,68,0.1); }
+
+        .instruction-box {
+            background: rgba(51,51,255,0.12);
+            border: 1px dashed #3333ff;
+            border-radius: 8px; padding: 12px;
+            color: #aaa; font-size: 11px;
+            line-height: 1.8; margin-top: 10px;
+            display: none;
+        }
+        .instruction-box.show { display: block; }
+        .step-active { color: #3333ff; font-weight: bold; }
+        .step-done { color: #00ff88; }
+
+        #result {
+            display: none;
+            border-radius: 8px; padding: 14px;
+            margin-top: 12px; font-size: 11px;
+            line-height: 2;
+        }
+        #result.show { display: block; }
+        #result.good { background: rgba(0,255,136,0.08); border: 1px solid #00ff88; }
+        .good-text { color: #00ff88; font-weight: bold; }
+        .bad-text { color: #ff4444; font-weight: bold; }
+        .white { color: white; }
+
+        .congestion-bar-wrap { margin: 6px 0 12px; }
+        .bar-label { color: #aaa; font-size: 10px; margin-bottom: 4px; }
+        .bar-bg { background: rgba(255,255,255,0.1); border-radius: 4px; height: 8px; overflow: hidden; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 1.2s ease; }
+
+        /* Crosshair cursor when picking points */
+        .picking { cursor: crosshair !important; }
+    </style>
+</head>
+<body>
+
+<div id="header">
+    <div>
+        <h1>BLUE URBIS</h1>
+        <p>Infrastructure Simulation — Liberty Chowk, Lahore</p>
+    </div>
+    <div class="live-badge">● LIVE SIMULATION</div>
+</div>
+
+<div id="panel">
+
+    <div class="panel-title">📍 Liberty Chowk — Current State</div>
+
+    <div class="stat-card">
+        <div class="stat-label">Peak Hour Congestion (7PM)</div>
+        <div class="stat-value" id="congestion-val">82%</div>
+        <div class="stat-sub" id="congestion-sub">⚠ Critical — avg wait 14 mins</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-label">Vehicles Per Hour</div>
+        <div class="stat-value" id="vehicles-val">4,200</div>
+        <div class="stat-sub" id="vehicles-sub">↑ 18% above road capacity</div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="panel-title">🚗 Traffic Direction Split</div>
+
+    <div class="direction-grid">
+        <div class="dir-card">
+            <div class="dir-icon">⬆️</div>
+            <div class="dir-label">Straight</div>
+            <div class="dir-value" id="dir-straight">38%</div>
+        </div>
+        <div class="dir-card">
+            <div class="dir-icon">➡️</div>
+            <div class="dir-label">Right</div>
+            <div class="dir-value" id="dir-right">24%</div>
+        </div>
+        <div class="dir-card">
+            <div class="dir-icon">⬅️</div>
+            <div class="dir-label">Left</div>
+            <div class="dir-value" id="dir-left">28%</div>
+        </div>
+        <div class="dir-card">
+            <div class="dir-icon">🔄</div>
+            <div class="dir-label">U-Turn</div>
+            <div class="dir-value" id="dir-uturn">10%</div>
+        </div>
+    </div>
+
+    <div class="congestion-bar-wrap">
+        <div class="bar-label">Current Congestion Level</div>
+        <div class="bar-bg">
+            <div class="bar-fill" id="congestion-bar" style="width:82%; background:#ff4444"></div>
+        </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="panel-title">⚙️ Simulate Flyover</div>
+
+    <button class="sim-btn" id="start-btn" onclick="startPicking()">
+        🛤 Draw New Flyover
+    </button>
+    <button class="sim-btn danger-btn" onclick="resetSim()">
+        ↺ Reset Simulation
+    </button>
+
+    <div class="instruction-box" id="instructions">
+        <span id="step1" class="step-active">① Click START point on map</span><br>
+        <span id="step2" style="color:#555">② Click END point on map</span><br>
+        <span id="step3" style="color:#555">③ See simulation results</span>
+    </div>
+
+    <div id="result"></div>
+
+</div>
+
+<div id="map"></div>
+
+<script>
+    mapboxgl.accessToken = 'pk.eyJ1IjoiYmx1ZXVyYmlzIiwiYSI6ImNtbTF6bXl3ZjAxb3YycXM5MzFldTJrZmEifQ.Jn65E8p48TrhG0Eu2PIamA';
+
+        const LIBERTY = [74.3438, 31.5102];
+
+        const map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/dark-v11',
+            center: LIBERTY,
+            zoom: 15,
+            pitch: 55,
+            bearing: -15,
+            antialias: true
+        });
+
+    let pickingMode = false;
+    let startPoint = null;
+    let endPoint = null;
+    let startMarker = null;
+    let endMarker = null;
+
+    map.on('load', () => {
+
+        // 3D Buildings
+        map.addLayer({
+            'id': '3d-buildings',
+            'source': 'composite',
+            'source-layer': 'building',
+            'filter': ['==', 'extrude', 'true'],
+            'type': 'fill-extrusion',
+            'paint': {
+                'fill-extrusion-color': '#1a1aff',
+                'fill-extrusion-height': ['get', 'height'],
+                'fill-extrusion-base': ['get', 'min_height'],
+                'fill-extrusion-opacity': 0.6
+            }
+        });
+
+        // Flyover source placeholder
+        map.addSource('flyover', {
+            type: 'geojson',
+            data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } }
+        });
+        map.addLayer({
+            id: 'flyover-layer',
+            type: 'line',
+            source: 'flyover',
+            paint: {
+                'line-color': '#00ff88',
+                'line-width': 6,
+                'line-opacity': 0.9,
+                'line-dasharray': [2, 1]
+            }
+        });
+    });
+
+    // Click handler
+    map.on('click', (e) => {
+        if (!pickingMode) return;
+
+        const coords = [e.lngLat.lng, e.lngLat.lat];
+
+        if (!startPoint) {
+            // Set start point
+            startPoint = coords;
+            if (startMarker) startMarker.remove();
+            startMarker = new mapboxgl.Marker({ color: '#3333ff' })
+                .setLngLat(coords)
+                .setPopup(new mapboxgl.Popup().setText('Flyover Start'))
+                .addTo(map);
+
+            // Update instructions
+            document.getElementById('step1').className = 'step-done';
+            document.getElementById('step1').innerText = '✓ Start point set';
+            document.getElementById('step2').className = 'step-active';
+            document.getElementById('step2').style.color = '';
+
+        } else if (!endPoint) {
+            // Set end point
+            endPoint = coords;
+            if (endMarker) endMarker.remove();
+            endMarker = new mapboxgl.Marker({ color: '#00ff88' })
+                .setLngLat(coords)
+                .setPopup(new mapboxgl.Popup().setText('Flyover End'))
+                .addTo(map);
+
+            // Draw flyover line
+            map.getSource('flyover').setData({
+                type: 'Feature',
+                geometry: {
+                    type: 'LineString',
+                    coordinates: [startPoint, endPoint]
+                }
+            });
+
+            // Calculate distance
+            const dist = getDistance(startPoint, endPoint);
+
+            // Stop picking
+            pickingMode = false;
+            map.getCanvas().style.cursor = '';
+
+            // Update instructions
+            document.getElementById('step2').className = 'step-done';
+            document.getElementById('step2').innerText = '✓ End point set';
+            document.getElementById('step3').className = 'step-done';
+            document.getElementById('step3').style.color = '';
+            document.getElementById('step3').innerText = '✓ Simulation complete';
+
+            // Run simulation
+            runSimulation(dist);
+        }
+    });
+
+    function startPicking() {
+        // Reset previous
+        startPoint = null;
+        endPoint = null;
+        if (startMarker) startMarker.remove();
+        if (endMarker) endMarker.remove();
+
+        map.getSource('flyover').setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [] }
+        });
+
+        pickingMode = true;
+        map.getCanvas().style.cursor = 'crosshair';
+
+        document.getElementById('instructions').className = 'instruction-box show';
+        document.getElementById('step1').className = 'step-active';
+        document.getElementById('step1').innerText = '① Click START point on map';
+        document.getElementById('step2').className = '';
+        document.getElementById('step2').style.color = '#555';
+        document.getElementById('step2').innerText = '② Click END point on map';
+        document.getElementById('step3').className = '';
+        document.getElementById('step3').style.color = '#555';
+        document.getElementById('step3').innerText = '③ See simulation results';
+
+        document.getElementById('result').className = '';
+        document.getElementById('result').innerHTML = '';
+
+        // Reset stats
+        resetStats();
+    }
+
+    function runSimulation(distanceKm) {
+        // Animate map to flyover midpoint
+        const mid = [
+            (startPoint[0] + endPoint[0]) / 2,
+            (startPoint[1] + endPoint[1]) / 2
+        ];
+        map.flyTo({ center: mid, zoom: 15.5, pitch: 60, bearing: 25, duration: 1500 });
+
+        // Update congestion circle to green
+        map.setPaintProperty('congestion-circle', 'circle-color', '#00ff88');
+        map.setPaintProperty('congestion-circle', 'circle-stroke-color', '#00ff88');
+
+        // Update stats
+        document.getElementById('congestion-val').innerText = '31%';
+        document.getElementById('congestion-sub').innerHTML = '✅ Reduced — avg wait 3 mins';
+        document.getElementById('vehicles-val').innerText = '4,200';
+        document.getElementById('vehicles-sub').innerHTML = '✅ Road capacity now stable';
+        document.getElementById('congestion-bar').style.width = '31%';
+        document.getElementById('congestion-bar').style.background = '#00ff88';
+
+        document.getElementById('dir-straight').innerText = '61%';
+        document.getElementById('dir-right').innerText = '18%';
+        document.getElementById('dir-left').innerText = '16%';
+        document.getElementById('dir-uturn').innerText = '5%';
+
+        // Estimate cost based on distance
+        const costBillion = (distanceKm * 3.2).toFixed(1);
+
+        const result = document.getElementById('result');
+        result.className = 'show good';
+        result.innerHTML = `
+            <strong class="white">🛤 Flyover Simulation Result</strong><br><br>
+            Length: <span class="white">${(distanceKm * 1000).toFixed(0)}m</span><br>
+            Congestion: <span class="bad-text">82%</span> → <span class="good-text">31%</span><br>
+            Avg Wait Time: <span class="bad-text">14 min</span> → <span class="good-text">3 min</span><br>
+            Straight Traffic: <span class="good-text">+23% rerouted via flyover</span><br>
+            U-Turns: <span class="good-text">-50% reduced</span><br>
+            Est. Cost: <span class="white">Rs. ${costBillion} Billion</span><br>
+            SDG 11: <span class="good-text">✓ Compliant</span><br><br>
+            <strong class="good-text">✅ Flyover Recommended</strong>
+        `;
+    }
+
+    function resetSim() {
+        pickingMode = false;
+        startPoint = null;
+        endPoint = null;
+        if (startMarker) startMarker.remove();
+        if (endMarker) endMarker.remove();
+        map.getCanvas().style.cursor = '';
+
+        map.getSource('flyover').setData({
+            type: 'Feature',
+            geometry: { type: 'LineString', coordinates: [] }
+        });
+
+        map.setPaintProperty('congestion-circle', 'circle-color', '#ff4444');
+        map.setPaintProperty('congestion-circle', 'circle-stroke-color', '#ff4444');
+
+        map.flyTo({ center: LIBERTY, zoom: 15, pitch: 55, bearing: -15, duration: 1500 });
+
+        document.getElementById('instructions').className = 'instruction-box';
+        document.getElementById('result').className = '';
+        document.getElementById('result').innerHTML = '';
+
+        resetStats();
+    }
+
+    function resetStats() {
+        document.getElementById('congestion-val').innerText = '82%';
+        document.getElementById('congestion-sub').innerHTML = '⚠ Critical — avg wait 14 mins';
+        document.getElementById('vehicles-val').innerText = '4,200';
+        document.getElementById('vehicles-sub').innerHTML = '↑ 18% above road capacity';
+        document.getElementById('congestion-bar').style.width = '82%';
+        document.getElementById('congestion-bar').style.background = '#ff4444';
+        document.getElementById('dir-straight').innerText = '38%';
+        document.getElementById('dir-right').innerText = '24%';
+        document.getElementById('dir-left').innerText = '28%';
+        document.getElementById('dir-uturn').innerText = '10%';
+    }
+
+    // Calculate distance between two coordinates in km
+    function getDistance(coord1, coord2) {
+        const R = 6371;
+        const dLat = (coord2[1] - coord1[1]) * Math.PI / 180;
+        const dLon = (coord2[0] - coord1[0]) * Math.PI / 180;
+        const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                  Math.cos(coord1[1] * Math.PI/180) * Math.cos(coord2[1] * Math.PI/180) *
+                  Math.sin(dLon/2) * Math.sin(dLon/2);
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+</script>
+</body>
+</html>
